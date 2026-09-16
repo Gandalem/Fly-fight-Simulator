@@ -85,6 +85,21 @@ class MuJoCoArena:
             self.controllers.append(HybridTurningController(timestep=a['physics_dt'],
                 preprogrammed_steps=steps,output_dof_order=self.orders[i]))
         self.steps=steps
+        self.front_indices=[]
+        self.joint_limits=[]
+        for i,order in enumerate(self.orders):
+            index=[]
+            for leg in ('lf','rf'):
+                for child,axis in ((f'{leg}_coxa','pitch'),(f'{leg}_coxa','roll'),(f'{leg}_tibia','pitch')):
+                    index.append(next(k for k,dof in enumerate(order) if dof.child.name==child and dof.axis.value==axis))
+            self.front_indices.append(np.array(index).reshape(2,3))
+            limits=[]
+            for dof in order:
+                joint=self.model.joint(f'fly{i}/{dof.parent.name}-{dof.child.name}-{dof.axis.value}')
+                limits.append(joint.range.copy() if joint.limited[0] else [-np.inf,np.inf])
+            self.joint_limits.append(np.asarray(limits))
+        self.front_offsets=np.zeros((agents,2,3))
+        self.front_adhesion=np.ones((agents,2))
         self.renderer=None
         self.render_disabled=False; self.last_gpu_check=0.
         self.reset(config['seed'])
@@ -94,6 +109,8 @@ class MuJoCoArena:
         self.model.actuator_gainprm[:]=self.base_gain
         self.model.actuator_biasprm[:]=self.base_bias
         self.model.actuator_forcerange[:]=self.base_force
+        self.front_offsets.fill(0)
+        self.front_adhesion.fill(1)
         for i,controller in enumerate(self.controllers):
             controller.reset(seed=seed+i)
             action=LocomotionAction(self.steps.default_pose_by_dof_order(self.orders[i]),np.ones(6,bool))
@@ -122,6 +139,7 @@ class MuJoCoArena:
                 obs=HybridControllerObservation.from_sim(self.sim,f'fly{i}')
                 signal=np.asarray(commands[i]['legs'])
                 action=controller.step(signal,obs)
+                action=self.apply_front_motor(i,action,commands[i],dt)
                 apply_locomotion_action(self.sim,f'fly{i}',action)
             self.sim.step()
             for ci in range(self.data.ncon):
@@ -144,6 +162,22 @@ class MuJoCoArena:
         if not np.isfinite(self.data.qpos).all(): raise FloatingPointError('Nonfinite MuJoCo state')
         return dict(contacts=contacts,contact_active=max_force>0,damage_received=totals,damage_dealt=dealt,force=max_force,
                     part_force=part_force,distance=distance)
+
+    def apply_front_motor(self,i,action,command,dt):
+        """Independent bounded joint targets, without a timed gesture or strategy."""
+        if 'front_joints' not in command: return action
+        c=self.config['motor_learning']
+        alpha=1-np.exp(-dt/c['actuator_smoothing_tau'])
+        target=np.clip(np.asarray(command['front_joints']),-1,1)*np.asarray(c['joint_offset_radians'])
+        self.front_offsets[i]+=alpha*(target-self.front_offsets[i])
+        self.front_adhesion[i]+=alpha*(np.clip(command['front_adhesion'],0,1)-self.front_adhesion[i])
+        angles=action.joint_angles.copy()
+        angles[self.front_indices[i]]+=self.front_offsets[i]
+        np.clip(angles,self.joint_limits[i][:,0],self.joint_limits[i][:,1],out=angles)
+        adhesion=np.array(action.adhesion_onoff,dtype=float,copy=True) if action.adhesion_onoff is not None else np.ones(6)
+        # FlyGym leg order is LF, LM, LH, RF, RM, RH. Preserve CPG swing release.
+        adhesion[[0,3]]*=self.front_adhesion[i]
+        return LocomotionAction(angles,adhesion)
 
     def frame(self,width=960,height=640):
         if self.render_disabled: return None

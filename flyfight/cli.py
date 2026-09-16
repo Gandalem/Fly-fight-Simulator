@@ -25,6 +25,7 @@ def main():
             s.add_argument('--headless',action='store_true')
             s.add_argument('--random-matchmaking',action='store_true')
             s.add_argument('--plasticity',choices=['on','off'])
+            s.add_argument('--exploration',choices=['on','off'],help='Motor exploration; independent of plasticity for paired controls')
             s.add_argument('--reset-mode',choices=['A','B','C'])
             s.add_argument('--seed',type=int)
             s.add_argument('--output')
@@ -56,6 +57,7 @@ def main():
     if args.episodes is not None: c['training']['episodes']=args.episodes
     if args.population is not None: c['training']['population']=args.population
     if args.plasticity: c['training']['plasticity']=args.plasticity=='on'
+    if args.exploration: c['motor_learning']['exploration']=args.exploration=='on'
     if args.reset_mode: c['training']['reset_mode']=args.reset_mode
     if args.command=='fight': c['training']['episodes']=1
     if args.random_matchmaking: c['training']['random_matchmaking']=True

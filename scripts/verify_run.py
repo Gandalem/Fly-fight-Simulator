@@ -12,6 +12,7 @@ assert [r['seed'] for r in on]==[r['seed'] for r in off]
 assert [(r['fly_a_id'],r['fly_b_id']) for r in on]==[(r['fly_a_id'],r['fly_b_id']) for r in off]
 for ep in off:
     assert all(x['plasticity']['modified_synapses']==0 for x in ep['agents'])
+    assert all(x.get('motor_learning',{}).get('changed_actor_weights',0)==0 for x in ep['agents'])
 assert any(x['plasticity']['modified_synapses']>0 for ep in on for x in ep['agents'])
 for records in [on,off]:
     for r in records:

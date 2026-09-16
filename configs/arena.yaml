@@ -10,3 +10,4 @@ arena:
   food_rate: 0.08
   food_respawn: false
   render_fps: 25
+  gui_fps: 30

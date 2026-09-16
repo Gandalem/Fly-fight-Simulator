@@ -1,5 +1,6 @@
 from PIL import Image,ImageDraw
 import imageio.v2 as imageio
+from .live_viewer import LiveViewer
 
 class VideoRecorder:
     """Stream frames to ffmpeg; never retain an episode's frames in RAM."""
@@ -28,22 +29,3 @@ class VideoRecorder:
         draw.text((215,300),text,fill='white')
         self.writer.append_data(__import__('numpy').asarray(image))
     def close(self): self.writer.close()
-
-class LiveViewer:
-    """MuJoCo desktop GUI with physiology/part integrity overlays."""
-    def __init__(self,env):
-        import mujoco.viewer
-        self.handle=mujoco.viewer.launch_passive(env.model,env.data)
-        self.handle.cam.lookat[:]=[0,0,.5]
-        self.handle.cam.distance=env.config['arena']['size']*.8
-        self.handle.cam.azimuth=90; self.handle.cam.elevation=-65
-    def __call__(self,frame,flies,episode,time):
-        if not self.handle.is_running(): raise KeyboardInterrupt('GUI closed')
-        lines=[f'Episode {episode} | {time:.2f}s']
-        for f in flies:
-            lines.append(f'Fly {f.id}: hunger={f.internal.hunger:.2f} energy={f.internal.energy:.2f} hemolymph={f.body.hemolymph:.2f}')
-            lines.extend(f'  {k}: {v.functional_modifier:.2f}' for k,v in f.body.parts.items())
-        self.handle.set_texts((None,None,'\n'.join(lines),'')); self.handle.sync()
-    def finish(self,summary):
-        self.handle.set_texts((None,None,f"Winner: {summary['winner']} ({summary['outcome']})",'')); self.handle.sync()
-    def close(self): self.handle.close()

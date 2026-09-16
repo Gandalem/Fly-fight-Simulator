@@ -12,3 +12,24 @@ learning:
   partial_decay: 0.8
   reward_food: 5.0
   reward_injury: 2.0
+
+# Engineering adapter weights, stored separately from real connectome synapses.
+motor_learning:
+  enabled: true
+  plasticity: true
+  feature_groups: 32
+  decision_dt: 0.1
+  feature_tau: 0.1
+  exploration: true
+  exploration_std: 0.45
+  actor_rate: 0.02
+  critic_rate: 0.1
+  discount_tau: 2.0
+  eligibility_tau: 1.0
+  td_clip: 2.0
+  trace_clip: 10.0
+  weight_bound: 3.0
+  initial_walk_bias: 0.3
+  initial_adhesion_bias: 1.5
+  joint_offset_radians: [0.6, 0.4, 0.8]
+  actuator_smoothing_tau: 0.03

@@ -16,15 +16,18 @@ def analyze(path,compare=None):
         for ax,col,title in zip(axes[0],['win','attack_rate','retreat_rate'],['Rolling win fraction (draw=0)','Attack onsets / s','Retreat onsets / s']):
             ax.plot(g.episode,g[col].rolling(10,min_periods=1).mean(),label=f'Fly {agent}'); ax.set_title(title); ax.set_xlabel('Episode')
     axes[0,0].legend()
-    if not df.attack_rate.any():
-        axes[0,1].text(.5,.7,'No attack onsets observed',transform=axes[0,1].transAxes,ha='center')
+    if not df.attack_rate.fillna(0).any():
+        message='Attack behavior not classified' if df.attack_rate.isna().all() else 'No attack onsets observed'
+        axes[0,1].text(.5,.7,message,transform=axes[0,1].transAxes,ha='center')
     axes[1,0].scatter(df.hunger_before,df.attack_rate,alpha=.5); axes[1,0].set(xlabel='Hunger before',ylabel='Attack onsets / s')
     if df.hunger_before.nunique()==1:
         axes[1,0].text(.5,.85,'Fixed initial hunger; no hunger sweep',transform=axes[1,0].transAxes,ha='center',fontsize=9)
     axes[1,1].scatter(df.damage_received,df.damage_then_retreat_probability,alpha=.5); axes[1,1].set(xlabel='Damage',ylabel='Next interval retreat probability')
     previous=df.groupby('previous_outcome').attack_rate.mean()
     axes[1,2].bar(previous.index,previous.values); axes[1,2].set(xlabel='Previous outcome',ylabel='Next-match attack rate')
-    means=df.groupby('fly_id')[['attack_rate','retreat_rate','food_consumed','distance_traveled']].mean()
+    feature_names=['retreat_rate','food_consumed','distance_traveled']
+    if df.attack_rate.notna().any(): feature_names.append('attack_rate')
+    means=df.groupby('fly_id')[feature_names].mean().fillna(0)
     points=pca(means)
     axes[2,0].scatter(points[:,0],points[:,1])
     for name,point in zip(means.index,points): axes[2,0].annotate(str(name),point)

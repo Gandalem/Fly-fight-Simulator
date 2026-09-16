@@ -13,7 +13,8 @@ def frame(path):
             r.update(episode=ep['episode_id'],duration=ep['duration'],win=float(outcome=='win'),
                      outcome=outcome,previous_outcome=previous.get(i,'none'),
                      opponent_diversity=len(opponents[i]),plasticity_on=ep['plasticity_on'],
-                     attack_rate=a['attack_attempts']/ep['duration'],retreat_rate=a['retreat_count']/ep['duration'],
+                     attack_rate=a['attack_attempts']/ep['duration'] if a['attack_attempts'] is not None else np.nan,
+                     retreat_rate=a['retreat_count']/ep['duration'],
                      mean_abs_delta=a['plasticity']['mean_abs_delta'],modified_synapses=a['plasticity']['modified_synapses'])
             rows.append(r); previous[i]=outcome
     return pd.DataFrame(rows)

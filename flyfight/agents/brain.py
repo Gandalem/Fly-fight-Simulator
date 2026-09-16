@@ -1,4 +1,5 @@
 import numpy as np
+from ..embodiment.motor_learning import MotorLearningState
 
 class FlyBrainState:
     def __init__(self, graph, plastic, seed, config):
@@ -14,6 +15,7 @@ class FlyBrainState:
         self.total_spikes=np.zeros(graph.n,np.uint64)
         self.delta=np.zeros(len(plastic.edges),np.float32)
         self.eligibility=np.zeros(len(plastic.edges),np.float32)
+        self.motor=MotorLearningState(seed,config)
 
     def reset(self, mode='B', decay=0.8):
         if mode not in ('A','B','C'): raise ValueError(mode)
@@ -26,7 +28,8 @@ class FlyBrainState:
             for name in ['delta','eligibility','pre_trace','post_trace']:
                 getattr(self,name)[:] *= decay
         self.total_spikes.fill(0)
+        self.motor.reset(mode,decay)
 
     @property
     def nbytes(self):
-        return sum(x.nbytes for x in vars(self).values() if isinstance(x,np.ndarray))
+        return self.motor.nbytes+sum(x.nbytes for x in vars(self).values() if isinstance(x,np.ndarray))

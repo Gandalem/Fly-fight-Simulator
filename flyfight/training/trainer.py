@@ -43,10 +43,11 @@ def train(graph,config,output=None,render=False,agents=2,resume=None,gui=False):
         env=MuJoCoArena(config,agents)
         monitor.sample()
         if render: video=VideoRecorder(path/'fight.mp4',config['arena']['render_fps'])
-        if gui: viewer=LiveViewer(env)
-        def display(frame,flies,episode,t):
-            if video: video(frame,flies,episode,t)
-            if viewer: viewer(frame,flies,episode,t)
+        if gui:
+            # Compile the sparse kernel before opening a responsive GUI.
+            from ..neural.lif import propagate
+            propagate(graph.indptr,graph.indices,graph.weights,np.empty(0,np.int64),np.zeros(graph.n,np.float32))
+            viewer=LiveViewer(env)
         def progress(steps):
             nonlocal last_profile
             if time.monotonic()-last_profile>=10:
@@ -60,7 +61,7 @@ def train(graph,config,output=None,render=False,agents=2,resume=None,gui=False):
                 flies=choose(pool,agents,rng,c['random_matchmaking'])
             seed=int(rng.integers(0,2**31))
             t=time.perf_counter()
-            summary=run_match(env,flies,sensory,motor,config,episode,seed,display if video or viewer else None,progress)
+            summary=run_match(env,flies,sensory,motor,config,episode,seed,video,progress,live=viewer)
             summary.update(wall_seconds=time.perf_counter()-t,plasticity_on=c['plasticity'],reset_mode=c['reset_mode'])
             logger.write(episode,summary); completed=episode
             if video: video.finish(summary)
@@ -72,7 +73,8 @@ def train(graph,config,output=None,render=False,agents=2,resume=None,gui=False):
                                   'ram_gib':perf['ram_gib'],'neural_steps_per_sec':perf['steps_per_sec']}),flush=True)
             if episode%c['checkpoint_every']==0: save(path/'checkpoint.npz',pool,episode,rng)
         save(path/'checkpoint.npz',pool,completed,rng)
-        (path/'complete.json').write_text(json.dumps(dict(episodes=completed-start,performance=monitor.sample(total_steps,completed-start)),indent=2))
+        (path/'complete.json').write_text(json.dumps(dict(episodes=completed-start,performance=monitor.sample(total_steps,completed-start),
+                    offscreen_renderer_created=env.renderer is not None),indent=2))
     except (MemoryError,KeyboardInterrupt) as error:
         # Last committed checkpoint remains valid; don't label a partial match complete.
         (path/'interrupted.json').write_text(json.dumps({'last_completed_episode':completed,'reason':str(error)}))
@@ -80,6 +82,8 @@ def train(graph,config,output=None,render=False,agents=2,resume=None,gui=False):
     finally:
         logger.close()
         if video: video.close()
-        if viewer: viewer.close()
+        if viewer:
+            viewer.close()
+            (path/'viewer_metrics.json').write_text(json.dumps(viewer.metrics(),indent=2))
         if env: env.close()
     return str(path)

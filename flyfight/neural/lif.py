@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def propagate(indptr, indices, weights, spike_indices, out):
     """Only visit outgoing edges of active neurons; O(active edges), O(N) buffer."""
     for pre in spike_indices:

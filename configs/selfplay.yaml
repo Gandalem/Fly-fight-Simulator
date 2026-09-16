@@ -1,0 +1,9 @@
+# Experimental training, not a pretrained fighter or a guaranteed combat result.
+arena:
+  duration: 10.0
+training:
+  checkpoint_every: 1
+  reset_mode: B
+motor_learning:
+  enabled: true
+  exploration: true

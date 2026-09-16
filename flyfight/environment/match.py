@@ -1,4 +1,5 @@
 import numpy as np
+import time
 from .food import Food
 from ..neural.lif import lif_step
 from ..neural.plasticity import update,statistics
@@ -6,49 +7,66 @@ from ..neural.neuromodulation import homeostatic_signal
 from ..combat.death import incapacity
 from ..logging.neural_logger import summarize
 
-def run_match(env,flies,sensory,motor,config,episode_id,seed,render=None,progress=None):
+def run_match(env,flies,sensory,motor,config,episode_id,seed,render=None,progress=None,live=None):
     a=config['arena']; dt=a['control_dt']; neural_dt=config['neural']['dt']
     rng=np.random.default_rng(seed)
+    evaluation=bool(config.get('evaluation'))
+    plasticity=config['training']['plasticity'] and config['learning']['enabled'] and not evaluation
     for fly in flies:
         fly.reset_body(config)
-        fly.brain.reset(config['training']['reset_mode'],config['learning']['partial_decay'])
-        if config.get('evaluation'):
+        if evaluation:
             learned=fly.brain.delta.copy()
+            actor=fly.brain.motor.weights.copy(); critic=fly.brain.motor.value_weights.copy()
             fly.brain.reset('A')
             fly.brain.delta[:]=learned
+            fly.brain.motor.weights[:]=actor; fly.brain.motor.value_weights[:]=critic
+        else:
+            fly.brain.reset(config['training']['reset_mode'],config['learning']['partial_decay'])
     env.reset(seed)
+    if live: live(env,flies,episode_id,0.)
     food=Food(config)
     fields=['food_consumed','food_ownership_time','distance_traveled','attack_attempts','successful_contacts',
-            'damage_dealt','damage_received','retreat_count','approach_count','energy_spent']
+            'damage_dealt','damage_received','retreat_count','approach_count','energy_spent',
+            'homeostatic_return','front_leg_motion_time','contact_time']
     stats=[dict(fly_id=f.id,**{k:0. for k in fields},hunger_before=f.internal.hunger) for f in flies]
     previous=env.positions(); velocities=np.zeros_like(previous)
     contact=[{} for f in flies]; modulation=np.zeros(len(flies)); causes=[None]*len(flies)
     last_attack=np.zeros(len(flies),bool); last_direction=np.zeros(len(flies),np.int8)
     prev_damage=np.zeros(len(flies)); damage_retreat_events=np.zeros(len(flies)); damaged_intervals=np.zeros(len(flies))
     neural_steps=0
+    timings=dict(neural_seconds=0.,physics_seconds=0.,video_seconds=0.)
     for tick in range(max(1,round(a['duration']/dt))):
         positions=env.positions(); headings=env.headings(); commands=[]
+        started=time.perf_counter()
         for i,f in enumerate(flies):
             features=sensory.features(i,positions,headings,velocities,f.body,f.internal,contact[i],float(food.amount>0))
             drive=sensory.encode(features,f.body)
             counts=np.zeros(f.brain.graph.n,np.uint16)
             for _ in range(round(dt/neural_dt)):
                 counts+=lif_step(f.brain,drive,config)
-                update(f.brain,modulation[i],config,config['training']['plasticity'] and config['learning']['enabled'])
+                update(f.brain,modulation[i],config,plasticity)
                 neural_steps+=1
-            cmd=motor.decode(counts,dt); commands.append(cmd)
+            cmd=motor.decode(counts,dt,f.brain); commands.append(cmd)
             attack=cmd['lunge']>.5
             stats[i]['attack_attempts']+=int(attack and not last_attack[i]); last_attack[i]=attack
+        timings['neural_seconds']+=time.perf_counter()-started
+        started=time.perf_counter()
         result=env.step(commands,[f.body for f in flies],[f.internal for f in flies])
+        timings['physics_seconds']+=time.perf_counter()-started
         current=env.positions(); velocities=(current-previous)/dt
         intake,owner=food.consume(current,[f.internal for f in flies],dt,rng)
         for i,f in enumerate(flies):
             movement=float(np.mean(np.abs(commands[i]['legs'])))
-            spent=f.internal.step(dt,movement,commands[i]['lunge'],intake[i],f.body.hemolymph,config)
+            energy_before=f.internal.energy
+            spent=f.internal.step(dt,movement,commands[i].get('motor_effort',commands[i]['lunge']),intake[i],f.body.hemolymph,config)
             f.body.update(dt,config,float(result['distance'][i]/dt))
-            modulation[i]=homeostatic_signal(intake[i],result['damage_received'][i],dt,config)
+            modulation[i]=homeostatic_signal(f.internal.energy-energy_before,result['damage_received'][i],dt,config)
+            motor.feedback(f.brain,modulation[i]*dt,dt)
             contact[i]=result['part_force'][i]
             s=stats[i]
+            s['homeostatic_return']+=float(modulation[i]*dt)
+            s['front_leg_motion_time']+=dt if commands[i].get('motor_effort',0)>.1 else 0.
+            s['contact_time']+=dt if result['contact_active'][i] else 0.
             for key,val in [('food_consumed',intake[i]),('food_ownership_time',dt if owner==i else 0),
                             ('distance_traveled',result['distance'][i]),('damage_dealt',result['damage_dealt'][i]),
                             ('damage_received',result['damage_received'][i]),('energy_spent',spent)]: s[key]+=float(val)
@@ -64,15 +82,19 @@ def run_match(env,flies,sensory,motor,config,episode_id,seed,render=None,progres
             last_direction[i]=direction
             causes[i]=incapacity(f.body,config)
         prev_damage=result['damage_received'].copy(); previous=current
+        if live: live(env,flies,episode_id,(tick+1)*dt)
         if render and tick % max(1,round(1/(a['render_fps']*dt)))==0:
+            started=time.perf_counter()
             frame=env.frame()
             if frame is not None: render(frame,flies,episode_id,(tick+1)*dt)
+            timings['video_seconds']+=time.perf_counter()-started
         if progress: progress(neural_steps)
         if any(causes): break
     duration=(tick+1)*dt
     # Apply final interval's reward to eligibility; no extra physics or neural tick.
     for i,f in enumerate(flies):
-        if config['training']['plasticity'] and config['learning']['enabled']:
+        motor.finish(f.brain)
+        if plasticity:
             bound=np.abs(f.brain.plastic.base)*config['learning']['max_relative_change']
             f.brain.delta[:]=np.clip(f.brain.delta+config['learning']['learning_rate']*modulation[i]*dt*f.brain.eligibility,-bound,bound)
         stats[i].update(hunger_after=f.internal.hunger,death_cause=causes[i],
@@ -80,7 +102,11 @@ def run_match(env,flies,sensory,motor,config,episode_id,seed,render=None,progres
             body_parts_destroyed=[k for k,p in f.body.parts.items() if p.current_integrity<=0],
             integrity={k:p.current_integrity for k,p in f.body.parts.items()},hemolymph=f.body.hemolymph,
             damage_then_retreat_probability=float(damage_retreat_events[i]/damaged_intervals[i]) if damaged_intervals[i] else None,
-            neural=summarize(f.brain,duration),plasticity=statistics(f.brain))
+            neural=summarize(f.brain,duration),plasticity=statistics(f.brain),motor_learning=f.brain.motor.statistics())
+        if config['motor_learning']['enabled']:
+            # A moving leg or a collision is not evidence of an intentional attack.
+            stats[i]['attack_attempts']=None
+            stats[i]['successful_contacts']=None
     # Analysis-only outcome: sole capable agent, else strictly most food, else draw.
     alive=[i for i,c in enumerate(causes) if c is None]
     food_values=np.array([s['food_consumed'] for s in stats])
@@ -91,4 +117,5 @@ def run_match(env,flies,sensory,motor,config,episode_id,seed,render=None,progres
     return dict(episode_id=episode_id,fly_a_id=flies[0].id,fly_b_id=flies[1].id,
                 winner=winner,loser=next((f.id for f in flies if f.id!=winner),None) if winner is not None and len(flies)==2 else None,
                 duration=duration,termination='incapacity' if any(causes) else 'time_limit',outcome=outcome,
-                food_remaining=food.amount,agents=stats,neural_steps=neural_steps,seed=seed)
+                food_remaining=food.amount,agents=stats,neural_steps=neural_steps,seed=seed,timings=timings,
+                attack_measurement='unclassified' if config['motor_learning']['enabled'] else 'legacy_lunge_threshold')
