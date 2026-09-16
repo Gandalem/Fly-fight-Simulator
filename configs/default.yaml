@@ -8,6 +8,9 @@ runtime:
   ram_limit_gib: 28
   vram_limit_gib: 8
   profile_every: 10
+  fast_neural: true
+  brain_workers: 2
+  progress_seconds: 10.0
 training:
   population: 2
   episodes: 100

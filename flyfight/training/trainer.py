@@ -42,16 +42,31 @@ def train(graph,config,output=None,render=False,agents=2,resume=None,gui=False):
     try:
         env=MuJoCoArena(config,agents)
         monitor.sample()
+        # Compile on disposable state, preserving each real brain and its RNG.
+        from ..agents.brain import FlyBrainState
+        from ..neural.lif import lif_step
+        from ..neural.plasticity import update
+        warmup=FlyBrainState(graph,pool[0].brain.plastic,0,config)
+        lif_step(warmup,np.zeros(graph.n,np.float32),config)
+        update(warmup,0.,config)
+        del warmup
         if render: video=VideoRecorder(path/'fight.mp4',config['arena']['render_fps'])
         if gui:
-            # Compile the sparse kernel before opening a responsive GUI.
-            from ..neural.lif import propagate
-            propagate(graph.indptr,graph.indices,graph.weights,np.empty(0,np.int64),np.zeros(graph.n,np.float32))
             viewer=LiveViewer(env)
+        target_seconds=max(1,round(config['arena']['duration']/config['arena']['control_dt']))*config['arena']['control_dt']
         def progress(steps):
             nonlocal last_profile
-            if time.monotonic()-last_profile>=10:
-                monitor.sample(total_steps+steps,completed-start)
+            if time.monotonic()-last_profile>=config['runtime']['progress_seconds']:
+                perf=monitor.sample(total_steps+steps,completed-start)
+                simulated=steps*config['neural']['dt']/agents
+                elapsed=time.perf_counter()-t
+                speed=simulated/max(elapsed,1e-9)
+                remaining=max(0.,target_seconds-simulated)
+                print(json.dumps(dict(event='progress',episode=episode,
+                    simulated_seconds=round(simulated,3),duration_seconds=target_seconds,
+                    progress_percent=round(min(100.,100*simulated/target_seconds),1),
+                    compute_speed=round(speed,3),eta_seconds=round(remaining/max(speed,1e-9),1),
+                    ram_gib=round(perf['ram_gib'],3))),flush=True)
                 last_profile=time.monotonic()
         for episode in range(start+1,start+c['episodes']+1):
             if config.get('evaluation'):
@@ -67,10 +82,12 @@ def train(graph,config,output=None,render=False,agents=2,resume=None,gui=False):
             if video: video.finish(summary)
             if viewer: viewer.finish(summary)
             total_steps+=summary['neural_steps']
+            report=dict(event='episode_complete',episode=episode,winner=summary['winner'],
+                        food=[s['food_consumed'] for s in summary['agents']],wall_seconds=round(summary['wall_seconds'],2))
             if episode%config['runtime']['profile_every']==0 or episode==start+1:
                 perf=monitor.sample(total_steps,episode-start)
-                print(json.dumps({'episode':episode,'winner':summary['winner'],'food':[s['food_consumed'] for s in summary['agents']],
-                                  'ram_gib':perf['ram_gib'],'neural_steps_per_sec':perf['steps_per_sec']}),flush=True)
+                report.update(ram_gib=perf['ram_gib'],neural_steps_per_sec=perf['steps_per_sec'])
+            print(json.dumps(report),flush=True)
             if episode%c['checkpoint_every']==0: save(path/'checkpoint.npz',pool,episode,rng)
         save(path/'checkpoint.npz',pool,completed,rng)
         (path/'complete.json').write_text(json.dumps(dict(episodes=completed-start,performance=monitor.sample(total_steps,completed-start),

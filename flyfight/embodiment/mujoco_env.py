@@ -12,6 +12,7 @@ from flygym_demo.complex_terrain import (make_locomotion_fly, PreprogrammedSteps
 from ..combat.body_parts import part_from_segment, LEG_PARTS
 from ..combat.collision import Contact
 from ..combat.damage import apply_impact
+from .cached_controller import CachedHybridTurningController, CachedObservation
 
 class MuJoCoArena:
     """Real NeuroMechFly morphology, native fly-fly collisions, joint CPG primitives.
@@ -67,6 +68,8 @@ class MuJoCoArena:
                     self.model.geom_conaffinity[geom]=(((1<<agents)-1) ^ (1<<i)) | (1<<21)
                     break
         self.base_gain=self.model.actuator_gainprm.copy()
+        self._geom_agents=np.full(self.model.ngeom,-1,np.int32)
+        for geom,owner in self.geom_owner.items(): self._geom_agents[geom]=owner
         self.base_bias=self.model.actuator_biasprm.copy()
         self.base_force=self.model.actuator_forcerange.copy()
         self.actuator_part={}
@@ -81,9 +84,11 @@ class MuJoCoArena:
                     else:
                         part=next((p for leg,p in LEG_PARTS.items() if leg in name),'Thorax')
                     self.actuator_part[k]=(i,part)
+        controller_class=CachedHybridTurningController if a['controller_backend']=='cached' else HybridTurningController
         for i in range(agents):
-            self.controllers.append(HybridTurningController(timestep=a['physics_dt'],
+            self.controllers.append(controller_class(timestep=a['physics_dt'],
                 preprogrammed_steps=steps,output_dof_order=self.orders[i]))
+        self.observers=[CachedObservation(self.sim,f'fly{i}',self.controllers[i].legs) for i in range(agents)] if a['controller_backend']=='cached' else None
         self.steps=steps
         self.front_indices=[]
         self.joint_limits=[]
@@ -129,6 +134,13 @@ class MuJoCoArena:
         totals=np.zeros(self.agents); dealt=np.zeros(self.agents)
         contacts=[]; max_force=np.zeros(self.agents)
         part_force=[{} for _ in bodies]
+        signals=[np.asarray(command['legs']) for command in commands]
+        front=[]
+        c=self.config['motor_learning']
+        alpha=1-np.exp(-dt/c['actuator_smoothing_tau'])
+        for command in commands:
+            front.append((np.clip(np.asarray(command['front_joints']),-1,1)*np.asarray(c['joint_offset_radians']),
+                          np.clip(command['front_adhesion'],0,1)) if 'front_joints' in command else (None,None))
         for k,(i,part) in self.actuator_part.items():
             mod=bodies[i].modifier(part)*bodies[i].performance()*(1-.7*internals[i].fatigue)
             self.model.actuator_gainprm[k]=self.base_gain[k]*mod
@@ -136,17 +148,17 @@ class MuJoCoArena:
             self.model.actuator_forcerange[k]=self.base_force[k]*mod
         for _ in range(round(a['control_dt']/dt)):
             for i,controller in enumerate(self.controllers):
-                obs=HybridControllerObservation.from_sim(self.sim,f'fly{i}')
-                signal=np.asarray(commands[i]['legs'])
-                action=controller.step(signal,obs)
-                action=self.apply_front_motor(i,action,commands[i],dt)
+                obs=self.observers[i].read() if self.observers is not None else HybridControllerObservation.from_sim(self.sim,f'fly{i}')
+                action=controller.step(signals[i],obs)
+                action=self.apply_front_motor(i,action,commands[i],dt,*front[i],alpha)
                 apply_locomotion_action(self.sim,f'fly{i}',action)
             self.sim.step()
-            for ci in range(self.data.ncon):
+            owners1=self._geom_agents[self.data.contact.geom1[:self.data.ncon]]
+            owners2=self._geom_agents[self.data.contact.geom2[:self.data.ncon]]
+            for ci in np.flatnonzero((owners1>=0)&(owners2>=0)&(owners1!=owners2)):
                 con=self.data.contact[ci]
                 g1,g2=int(con.geom1),int(con.geom2)
-                i,j=self.geom_owner.get(g1),self.geom_owner.get(g2)
-                if i is None or j is None or i==j: continue
+                i,j=int(owners1[ci]),int(owners2[ci])
                 f=np.zeros(6); mujoco.mj_contactForce(self.model,self.data,ci,f)
                 force=max(0,float(f[0])); p1,p2=self.geom_part[g1],self.geom_part[g2]
                 da=apply_impact(bodies[i],p1,force,dt,self.config)
@@ -163,14 +175,15 @@ class MuJoCoArena:
         return dict(contacts=contacts,contact_active=max_force>0,damage_received=totals,damage_dealt=dealt,force=max_force,
                     part_force=part_force,distance=distance)
 
-    def apply_front_motor(self,i,action,command,dt):
+    def apply_front_motor(self,i,action,command,dt,target=None,adhesion_target=None,alpha=None):
         """Independent bounded joint targets, without a timed gesture or strategy."""
         if 'front_joints' not in command: return action
         c=self.config['motor_learning']
-        alpha=1-np.exp(-dt/c['actuator_smoothing_tau'])
-        target=np.clip(np.asarray(command['front_joints']),-1,1)*np.asarray(c['joint_offset_radians'])
+        if alpha is None: alpha=1-np.exp(-dt/c['actuator_smoothing_tau'])
+        if target is None: target=np.clip(np.asarray(command['front_joints']),-1,1)*np.asarray(c['joint_offset_radians'])
+        if adhesion_target is None: adhesion_target=np.clip(command['front_adhesion'],0,1)
         self.front_offsets[i]+=alpha*(target-self.front_offsets[i])
-        self.front_adhesion[i]+=alpha*(np.clip(command['front_adhesion'],0,1)-self.front_adhesion[i])
+        self.front_adhesion[i]+=alpha*(adhesion_target-self.front_adhesion[i])
         angles=action.joint_angles.copy()
         angles[self.front_indices[i]]+=self.front_offsets[i]
         np.clip(angles,self.joint_limits[i][:,0],self.joint_limits[i][:,1],out=angles)

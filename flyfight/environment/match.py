@@ -1,14 +1,19 @@
 import numpy as np
 import time
 from .food import Food
-from ..neural.lif import lif_step
-from ..neural.plasticity import update,statistics
+from ..neural.plasticity import statistics
 from ..neural.neuromodulation import homeostatic_signal
 from ..combat.death import incapacity
 from ..logging.neural_logger import summarize
+from ..neural.stepper import BrainStepper
 
 def run_match(env,flies,sensory,motor,config,episode_id,seed,render=None,progress=None,live=None):
-    a=config['arena']; dt=a['control_dt']; neural_dt=config['neural']['dt']
+    with BrainStepper(config,len(flies)) as stepper:
+        return _run_match(env,flies,sensory,motor,config,episode_id,seed,render,progress,live,stepper)
+
+
+def _run_match(env,flies,sensory,motor,config,episode_id,seed,render,progress,live,stepper):
+    a=config['arena']; dt=a['control_dt']
     rng=np.random.default_rng(seed)
     evaluation=bool(config.get('evaluation'))
     plasticity=config['training']['plasticity'] and config['learning']['enabled'] and not evaluation
@@ -38,14 +43,13 @@ def run_match(env,flies,sensory,motor,config,episode_id,seed,render=None,progres
     for tick in range(max(1,round(a['duration']/dt))):
         positions=env.positions(); headings=env.headings(); commands=[]
         started=time.perf_counter()
+        drives=[]
         for i,f in enumerate(flies):
             features=sensory.features(i,positions,headings,velocities,f.body,f.internal,contact[i],float(food.amount>0))
-            drive=sensory.encode(features,f.body)
-            counts=np.zeros(f.brain.graph.n,np.uint16)
-            for _ in range(round(dt/neural_dt)):
-                counts+=lif_step(f.brain,drive,config)
-                update(f.brain,modulation[i],config,plasticity)
-                neural_steps+=1
+            drives.append(sensory.encode(features,f.body))
+        all_counts=stepper.advance([f.brain for f in flies],drives,modulation)
+        neural_steps+=stepper.steps*len(flies)
+        for i,(f,counts) in enumerate(zip(flies,all_counts)):
             cmd=motor.decode(counts,dt,f.brain); commands.append(cmd)
             attack=cmd['lunge']>.5
             stats[i]['attack_attempts']+=int(attack and not last_attack[i]); last_attack[i]=attack

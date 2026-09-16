@@ -11,3 +11,4 @@ arena:
   food_respawn: false
   render_fps: 25
   gui_fps: 30
+  controller_backend: cached

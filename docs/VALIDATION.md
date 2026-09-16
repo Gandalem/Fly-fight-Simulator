@@ -122,3 +122,20 @@
 `pytest -q`: **19 passed**. 보상 지연의 행동 credit, OFF 불변성, A/B/C 운동 가중치 보존, CNS/출력층 독립 ablation, checkpoint/난수 복구, frozen 가중치 이전, 실제 앞다리 제어·손상·복구를 포함합니다.
 
 새 모델의 공격 횟수/성공률은 `null`로 기록합니다. 독립 관절 동작이나 충돌을 공격으로 자동 해석하지 않습니다. 자발적 전투, 경쟁 전략 개선, 장기 훈련의 수렴, 낯선 상대에 대한 성능 향상은 아직 검증하지 않았습니다.
+
+## 계산 최적화 검증 (2026-09-16)
+
+전체 graph와 모든 timestep을 유지했습니다. 변경은 float32 LIF/STDP 배열 연산의 Numba 컴파일, 독립 뇌의 스레드 병렬 처리, FlyGym controller의 불변 인덱스·phase knot 캐시, 원래 spline 계수의 일괄 평가, control interval 안의 반복 target 생성 제거입니다. `fastmath`와 시냅스 합산의 병렬 재배열은 사용하지 않습니다. FlyGym에서 수정한 부분의 출처/라이선스는 `third_party/`에 포함했습니다.
+
+`scripts/benchmark_speed.py`는 실제 전체 MaleCNS의 학습 ON 상태에서 참고 구현(NumPy + native FlyGym)과 최적화 구현을 같은 seed로 실행하고 과학적 경기 기록, checkpoint의 모든 항목과 RNG를 비교합니다. 최종 스크립트는 마지막 물리 qpos/qvel/qacc/ctrl 및 앞다리 보간 상태도 비교합니다.
+
+- 1초 경기 paired 실행 (`results/speed_final/report.json`): 참고 42.53초, 최적화 18.23초, 약 2.33배. 모든 episode agent 기록과 checkpoint 항목이 정확히 일치했습니다.
+- 실제 사용자 평가와 같은 10초 경기 (`results/speed_full_evaluation.json`): 기존 310.75초, 최적화 154.93초, 약 **2.01배**. 시간 관련 필드를 제외한 **모든 episode 필드**가 정확히 일치했습니다.
+- 해당 10초 평가의 신경 처리 144.06 → 81.69초, 물리/보행 처리 165.00 → 72.19초. 영상 처리 0초. 최적화 실행 RSS 약 0.652GiB, 신경 VRAM 0.
+- 최종 물리 상태를 추가한 0.15초 paired 검증 (`results/speed_physics_exact/report.json`)에서 qpos/qvel/qacc/ctrl, 앞다리 보간 상태, 모든 checkpoint 항목과 경기 기록도 정확히 일치했습니다.
+- 최적화 후 실제 GUI/headless paired 검증도 전체 경기/체크포인트가 정확히 일치했습니다. GUI 상태 갱신 약 29.94회/초, 95백분위 간격 35.25ms, 표시 오류 없음.
+- 측정은 공유 데스크톱에서 수행했고 다른 작업의 영향을 통제하지 않았으므로 절대 속도나 배율을 모든 실행에 보장하지 않습니다.
+
+회귀 테스트 **22 passed**: 기존 19개에 float32 신경/가소성의 단계별 exact 비교(잡음·비기본 상수·ON/OFF), native/cached controller의 후진·reflex·부착 exact 비교, 순차/병렬 뇌의 모든 상태 및 난수 exact 비교를 추가했습니다.
+
+계산 중 10초마다 터미널 진행률/예상 남은 시간, 매 경기 완료 시 소요 시간을 표시합니다. 표시 및 프로파일링은 학습 입력이나 난수에 사용되지 않습니다. 이 수정은 계산 비용을 줄이며 자발적 전투나 학습 성능 향상을 새로 증명하는 변경은 아닙니다.

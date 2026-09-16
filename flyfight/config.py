@@ -21,8 +21,16 @@ def load_config(path=None):
     n, a = c['neural'], c['arena']
     if n['dt'] <= 0 or a['control_dt'] <= 0 or a['physics_dt'] <= 0:
         raise ValueError('Timesteps must be positive')
+    if a['duration']<=0:
+        raise ValueError('Arena duration must be positive')
     if not 1 <= a['gui_fps'] <= 120 or a['render_fps'] <= 0:
         raise ValueError('gui_fps must be 1..120 and render_fps must be positive')
+    if a['controller_backend'] not in ('cached','reference'):
+        raise ValueError('controller_backend must be cached or reference')
+    if not isinstance(c['runtime']['brain_workers'],int) or not 1<=c['runtime']['brain_workers']<=32:
+        raise ValueError('brain_workers must be an integer in 1..32')
+    if c['runtime']['progress_seconds']<=0:
+        raise ValueError('progress_seconds must be positive')
     for small in [n['dt'], a['physics_dt']]:
         if abs(a['control_dt']/small-round(a['control_dt']/small)) > 1e-6:
             raise ValueError('control_dt must be an integer multiple of neural/physics dt')

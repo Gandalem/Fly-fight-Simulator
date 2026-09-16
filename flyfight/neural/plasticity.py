@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import numpy as np
+from numba import njit
 
 @dataclass(frozen=True)
 class PlasticSubset:
@@ -35,6 +36,34 @@ def select_plastic(graph, config):
     return PlasticSubset(*arrays)
 
 def update(brain, modulation, config, enabled=True):
+    if not config['runtime'].get('fast_neural',True):
+        return update_reference(brain,modulation,config,enabled)
+    c=config['learning']; dt=config['neural']['dt']; p=brain.plastic
+    _plasticity_kernel(p.pre,p.post,p.base,brain.spikes,brain.pre_trace,brain.post_trace,brain.eligibility,brain.delta,
+                        np.float32(np.exp(-dt/c['tau_eligibility'])),np.float32(np.exp(-dt/c['tau_trace'])),
+                        np.float32(c['a_plus']),np.float32(c['a_minus']),
+                        np.float32(c['learning_rate']*modulation*dt),np.float32(c['max_relative_change']),enabled)
+
+
+@njit(cache=True,nogil=True)
+def _plasticity_kernel(pre,post,base,spikes,pre_trace,post_trace,eligibility,delta,elig_decay,trace_decay,
+                        a_plus,a_minus,reward_scale,relative_bound,enabled):
+    for edge in range(len(eligibility)):
+        positive=np.float32(np.float32(a_plus*pre_trace[pre[edge]])*spikes[post[edge]])
+        negative=np.float32(np.float32(a_minus*post_trace[post[edge]])*spikes[pre[edge]])
+        value=np.float32(np.float32(eligibility[edge]*elig_decay)+np.float32(positive-negative))
+        eligibility[edge]=min(np.float32(10),max(np.float32(-10),value))
+        if enabled:
+            value=np.float32(delta[edge]+np.float32(reward_scale*eligibility[edge]))
+            bound=np.float32(abs(base[edge])*relative_bound)
+            delta[edge]=min(bound,max(-bound,value))
+    for i in range(len(pre_trace)):
+        pre_trace[i]=np.float32(np.float32(pre_trace[i]*trace_decay)+spikes[i])
+        post_trace[i]=np.float32(np.float32(post_trace[i]*trace_decay)+spikes[i])
+
+
+def update_reference(brain, modulation, config, enabled=True):
+    """Original NumPy implementation used to verify the compiled kernel."""
     c=config['learning']; dt=config['neural']['dt']
     p=brain.plastic
     brain.eligibility *= np.float32(np.exp(-dt/c['tau_eligibility']))

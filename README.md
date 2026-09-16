@@ -90,6 +90,16 @@ pip install -e '.[test]'
 
 `viewer_metrics.json`에 화면 상태 갱신 간격을, episode summary의 `timings`에 신경·물리·영상 계산 시간을 저장합니다. 회귀 검증은 `python scripts/profile_gui.py`로 실행합니다. 같은 seed의 GUI/headless 결과와 checkpoint가 정확히 같은지 비교합니다.
 
+## 계산 속도와 진행 표시
+
+기본 설정은 컴파일한 LIF/STDP 커널, 독립 뇌 2개 병렬 계산, FlyGym 관절/감각 mapping 캐시와 원래 spline 계수의 일괄 평가를 사용합니다. **전체 MaleCNS, 물리·신경 timestep, 학습 규칙은 유지합니다.** 참고 경로와 경기 결과/체크포인트가 정확히 같은지 비교하는 스크립트는 `scripts/benchmark_speed.py`입니다.
+
+이 PC의 실제 10초 평가 한 경기에서 약 **311초 → 155초**로 줄었습니다. 이 비교의 모든 과학적 episode 기록은 일치했습니다. 동시 실행 프로그램에 따라 속도는 달라지며 아직 실시간은 아닙니다. 최초 커널 컴파일은 추가 시간이 들 수 있습니다. 이미 실행 중인 프로세스는 기존 코드를 사용하며 새 실행부터 최적화가 적용됩니다.
+
+터미널에는 기본 10초마다 `progress_percent`(진행률), `compute_speed`(가상 시간/실제 시간), `eta_seconds`(시간 제한까지 예상 남은 실제 초)가 표시됩니다. 예상 시간은 현재 속도 기준으로 바뀌며 행동불능이 발생하면 일찍 끝날 수 있습니다. 매 경기 끝에는 `episode_complete`와 실제 소요 시간을 출력합니다.
+
+설정: `runtime.fast_neural: true`, `runtime.brain_workers: 2`, `arena.controller_backend: cached`, `runtime.progress_seconds: 10.0`. 참고 구현을 비교하려면 각각 `false`, `1`, `reference`를 사용합니다. CPU 자원이 부족하면 `brain_workers`를 1로 낮출 수 있습니다.
+
 ## 뇌 보존과 재개
 
 - `--reset-mode A`: 몸 복구 + 신경 상태/가중치 초기화.
