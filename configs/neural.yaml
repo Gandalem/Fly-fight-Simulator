@@ -1,0 +1,29 @@
+# Dimensionless LIF parameters: modeling assumptions, not measurements.
+neural:
+  dt: 0.001
+  tau_membrane: 0.02
+  tau_synapse: 0.005
+  threshold: 1.0
+  reset_voltage: 0.0
+  refractory: 0.002
+  weight_scale: 0.025
+  weight_exponent: 0.5
+  max_base_weight: 2.0
+  noise_std: 0.015
+  input_gain: 120.0
+  signs:
+    acetylcholine: 1
+    gaba: -1
+    glutamate: -1
+    histamine: -1
+    dopamine: 0
+    octopamine: 0
+    serotonin: 0
+    unknown: 0
+adapter:
+  # Feature-to-population shards and DN decoder are explicit hypotheses.
+  max_neurons_per_feature: 128
+  firing_rate_scale: 35.0
+  motor_gain: 1.2
+  motor_deadzone: 0.02
+  sensory_classes: [olfactory, visual, mechanosensory_tactile, gustatory]

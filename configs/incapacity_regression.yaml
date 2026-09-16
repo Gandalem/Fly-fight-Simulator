@@ -1,0 +1,13 @@
+# Artificially fragile body for end-to-end damage/death/reset verification only.
+# NOT an estimated Drosophila tissue model.
+arena:
+  duration: 0.5
+  starting_distance: 3.8
+  food_radius: 1.8
+body:
+  damage_force_threshold: 0.0
+  damage_multiplier: 100.0
+  min_legs: 6
+training:
+  episodes: 3
+  reset_mode: B

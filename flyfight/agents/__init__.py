@@ -1,0 +1,1 @@
+"""Independent state, shared topology."""

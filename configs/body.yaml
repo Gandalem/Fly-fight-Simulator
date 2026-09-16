@@ -1,0 +1,19 @@
+body:
+  initial_energy: 0.45
+  basal_cost: 0.008
+  movement_cost: 0.004
+  attack_cost: 0.004
+  fatigue_rate: 0.02
+  fatigue_recovery: 0.01
+  reset_energy: true
+  max_integrity: 1.0
+  damage_force_threshold: 15.0
+  damage_multiplier: 0.002
+  critical_integrity: 0.05
+  critical_hemolymph: 0.15
+  bleeding_rate: 0.1
+  severe_integrity: 0.4
+  mild_integrity: 0.75
+  min_legs: 2
+  immobile_timeout: 5.0
+  immobile_speed: 0.01

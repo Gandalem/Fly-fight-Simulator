@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flyfight"
+version = "0.1.0"
+description = "MaleCNS sparse spiking embodied competition research prototype"
+requires-python = ">=3.12"
+dependencies = ["numpy", "scipy", "pandas", "pyarrow", "PyYAML", "psutil", "matplotlib", "flygym==2.1.0", "mujoco==3.9.0"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+flyfight = "flyfight.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["flyfight*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["data: requires official downloaded MaleCNS tables", "physics: requires MuJoCo and FlyGym"]

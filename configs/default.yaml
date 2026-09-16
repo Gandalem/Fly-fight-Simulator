@@ -1,0 +1,17 @@
+seed: 42
+dataset:
+  version: male-cns:v1.0
+  raw: data/raw
+  processed: data/processed/malecns
+runtime:
+  device: cpu
+  ram_limit_gib: 28
+  vram_limit_gib: 8
+  profile_every: 10
+training:
+  population: 2
+  episodes: 100
+  reset_mode: B
+  plasticity: true
+  checkpoint_every: 25
+  random_matchmaking: true

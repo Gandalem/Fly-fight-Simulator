@@ -1,0 +1,10 @@
+# Pipeline regression, NOT a learning/winner-effect experiment.
+arena:
+  duration: 0.15
+  starting_distance: 3.8
+  food_radius: 1.8
+body:
+  damage_force_threshold: 0.1
+  damage_multiplier: 0.02
+training:
+  checkpoint_every: 25

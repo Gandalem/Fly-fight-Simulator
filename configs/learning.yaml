@@ -1,0 +1,14 @@
+learning:
+  enabled: true
+  max_synapses: 20000
+  candidate_classes: [Kenyon_Cell, MBON, DAN]
+  include_descending_targets: true
+  learning_rate: 0.01
+  tau_trace: 0.02
+  tau_eligibility: 1.0
+  a_plus: 1.0
+  a_minus: 1.05
+  max_relative_change: 0.5
+  partial_decay: 0.8
+  reward_food: 5.0
+  reward_injury: 2.0
